@@ -10,3 +10,9 @@ six==1.17.0
 SQLAlchemy==2.0.52
 typing_extensions==4.16.0
 tzdata==2026.3
+
+# --- testing ---
+pytest==9.1.1
+pluggy==1.6.0
+iniconfig==2.3.0
+packaging==26.3

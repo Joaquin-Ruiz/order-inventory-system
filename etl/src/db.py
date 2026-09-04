@@ -9,6 +9,7 @@ without a full ORM migration story.
 
 from __future__ import annotations
 
+import uuid
 from typing import Any, Dict, Iterable
 
 from sqlalchemy import create_engine, text
@@ -35,8 +36,8 @@ def upsert_products(
 
     stmt = text(
         """
-        INSERT INTO products (name, sku, stock, price, active)
-        VALUES (:name, :sku, :stock, :price, :active)
+        INSERT INTO products (id, name, sku, stock, price, active, updated_at)
+        VALUES (:id, :name, :sku, :stock, :price, :active, NOW())
         ON CONFLICT (sku) DO UPDATE SET
             name = EXCLUDED.name,
             stock = EXCLUDED.stock,
@@ -47,6 +48,7 @@ def upsert_products(
     )
     payload = [
         {
+            "id": str(uuid.uuid4()),
             "name": r["name"],
             "sku": r["sku"],
             "stock": r.get("stock") or 0,
@@ -69,8 +71,8 @@ def upsert_orders(conn: Connection, rows: Iterable[Dict[str, Any]]) -> int:
 
     stmt = text(
         """
-        INSERT INTO orders (order_number, date, status, customer, source)
-        VALUES (:order_number, :date, :status, :customer, :source)
+        INSERT INTO orders (id, order_number, date, status, customer, source, updated_at)
+        VALUES (:id, :order_number, :date, :status, :customer, :source, NOW())
         ON CONFLICT (order_number) DO UPDATE SET
             date = EXCLUDED.date,
             status = EXCLUDED.status,
@@ -81,6 +83,7 @@ def upsert_orders(conn: Connection, rows: Iterable[Dict[str, Any]]) -> int:
     )
     payload = [
         {
+            "id": str(uuid.uuid4()),
             "order_number": r["order_number"],
             "date": r.get("date"),
             "status": r.get("status") or "PENDING",
@@ -108,8 +111,8 @@ def link_order_items(
 
     upsert_item = text(
         """
-        INSERT INTO order_items (order_id, product_id, quantity, unit_price)
-        VALUES (:order_id, :product_id, :quantity, :unit_price)
+        INSERT INTO order_items (id, order_id, product_id, quantity, unit_price)
+        VALUES (:id, :order_id, :product_id, :quantity, :unit_price)
         ON CONFLICT (order_id, product_id) DO NOTHING
         """
     )
@@ -120,16 +123,17 @@ def link_order_items(
         product_id = lookup["products"].get(it["sku"])
         if order_id is None or product_id is None:
             continue
-        conn.execute(
+        result = conn.execute(
             upsert_item,
             {
+                "id": str(uuid.uuid4()),
                 "order_id": order_id,
                 "product_id": product_id,
                 "quantity": it["quantity"],
                 "unit_price": it["unit_price"],
             },
         )
-        written += 1
+        written += result.rowcount or 0
     return written
 
 
@@ -147,10 +151,10 @@ def upsert_movements(
     stmt = text(
         """
         INSERT INTO inventory_movements
-            (product_id, type, quantity, reason, document,
+            (id, product_id, type, quantity, reason, document,
              movement_date, source, external_key)
         VALUES
-            (:product_id, :type, :quantity, :reason, :document,
+            (:id, :product_id, :type, :quantity, :reason, :document,
              :movement_date, :source, :external_key)
         ON CONFLICT (external_key) DO NOTHING
         """
@@ -161,9 +165,10 @@ def upsert_movements(
         product_id = lookup["products"].get(r["sku"])
         if product_id is None or not r.get("external_key"):
             continue
-        conn.execute(
+        result = conn.execute(
             stmt,
             {
+                "id": str(uuid.uuid4()),
                 "product_id": product_id,
                 "type": r["type"],
                 "quantity": r["quantity"],
@@ -174,7 +179,7 @@ def upsert_movements(
                 "external_key": r["external_key"],
             },
         )
-        written += 1
+        written += result.rowcount or 0
     return written
 
 

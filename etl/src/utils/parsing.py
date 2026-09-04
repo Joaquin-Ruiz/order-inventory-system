@@ -81,9 +81,48 @@ def parse_date(value: object) -> Optional[date]:
     for name in _MONTHS_PT:
         normalized = re.sub(rf"\b{name[:3]}", name, normalized, flags=re.IGNORECASE)
 
+    # Explicit Spanish day-month-year form: "14-abr-26", "28 de abr de 26",
+    # "9 de may de 26", "14-04-2026". Handles 2- or 4-digit years.
+    parsed = _parse_spanish_date(text)
+    if parsed is not None:
+        return parsed
+
     try:
         return date_parser.parse(normalized, dayfirst=True).date()
     except (ValueError, OverflowError):
+        return None
+
+
+# Matches a Spanish day-month-year date: "14-abr-26", "28 de abr de 26",
+# "9 de may de 26", "03-may-26", "14-04-2026".
+_SPANISH_DATE_RE = re.compile(
+    r"^\s*"
+    r"(?P<day>\d{1,2})"
+    r"(?:\s*de\s+|\s+|-|/)(?P<month>\d{1,2}|[A-Za-z]+)"
+    r"(?:\s*de\s+|\s+|-|/)(?P<year>\d{2,4})"
+    r"\s*$",
+)
+
+
+def _parse_spanish_date(text: str):
+    """Parse a Spanish ``DD MMM YY`` date, returning a ``date`` or ``None``."""
+    m = _SPANISH_DATE_RE.match(text.strip())
+    if not m:
+        return None
+    day = int(m.group("day"))
+    year = int(m.group("year"))
+    ym = m.group("month")
+    if ym.isdigit():
+        month = int(ym)
+    else:
+        month = _month_number(ym)
+        if month is None:
+            return None
+    if year < 100:
+        year += 2000
+    try:
+        return date(year, month, day)
+    except ValueError:  # impossible date, e.g. 31-04-2026
         return None
 
 

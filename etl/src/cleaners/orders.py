@@ -15,9 +15,13 @@ from ..utils.parsing import parse_date, parse_order_status
 
 
 def clean_orders(rows: List[Dict]) -> List[Dict]:
-    """Return de-duplicated order records keyed by ``order_number``."""
+    """Return de-duplicated order records keyed by ``order_number``.
+
+    Field normalisation only — records with an unresolvable date or status are
+    kept with ``date=None`` / ``status=PENDING`` and left for the validator to
+    reject explicitly, so rejected totals are visible in the quality report.
+    """
     dedup: Dict[str, Dict] = {}
-    dropped_no_date = 0
     for r in rows:
         order_number = r.get("order_number")
         if not order_number:
@@ -25,10 +29,6 @@ def clean_orders(rows: List[Dict]) -> List[Dict]:
         customer = str(r.get("customer") or "").strip()
         parsed_date = parse_date(r.get("date"))
         status = parse_order_status(r.get("status")) or "PENDING"
-
-        if parsed_date is None:
-            dropped_no_date += 1
-            continue
 
         dedup[order_number] = {
             "order_number": order_number,

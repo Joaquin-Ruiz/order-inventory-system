@@ -23,15 +23,19 @@ class ValidationResult:
     accepted: int = 0
     rejected: int = 0
     reasons: Dict[str, int] = field(default_factory=dict)
+    _kept: List[Dict] = field(default_factory=list, repr=False)
 
-    def accept(self, row) -> List[Dict]:
+    def accept(self, row) -> None:
         self.accepted += 1
-        return [row]
+        self._kept.append(row)
 
-    def reject(self, reason: str) -> List[Dict]:
+    def reject(self, reason: str) -> None:
         self.rejected += 1
         self.reasons[reason] = self.reasons.get(reason, 0) + 1
-        return []
+
+    @property
+    def accepted_rows(self) -> List[Dict]:
+        return list(self._kept)
 
     @property
     def summary(self) -> Dict:
