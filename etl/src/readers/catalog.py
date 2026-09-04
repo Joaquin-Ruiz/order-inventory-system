@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 from ..utils.normalize import looks_like_sku, normalize_sku
-from ..utils.parsing import parse_int, parse_number
+from ..utils.parsing import parse_number, parse_quantity
 
 # Sheets that must never be treated as product data.
 _IGNORE_SHEETS = {"LINEA NUEVA 2027", "plantilla"}
@@ -58,13 +58,22 @@ class _SheetSpec:
         self.header_scan_max = header_scan_max
 
     def find_header(self, df: pd.DataFrame) -> int:
-        """Return the row index containing a SKU-like header or -1."""
+        """Return the row index where the SKU column is the header.
+
+        The SKU column position is fixed per sheet (``self.sku``), so we scan
+        for a cell in that column whose text looks like a column header.
+        """
         for i in range(min(self.header_scan_max, len(df))):
-            values = [str(v).strip().upper() for v in df.iloc[i].tolist()]
-            if "SKU" in values or "CODIGO" in values or "SKU" in str(values):
-                # Accept row whose column matches the configured SKU header.
-                if self.sku and self.sku.upper() in values:
-                    return i
+            if i >= len(df):
+                break
+            cell = df.iloc[i][self.sku] if self.sku < len(df.iloc[i]) else None
+            if cell is None:
+                continue
+            text = str(cell).strip().upper()
+            # Ignore quotes/whitespace common in these files ("'SKU'").
+            text = text.replace("'", "").replace('"', "").strip()
+            if text in {"SKU", "CODIGO", "CO\u00d3DIGO"}:
+                return i
         return -1
 
 
@@ -106,7 +115,7 @@ def _scan_family_rows(df: pd.DataFrame, spec: _SheetSpec, hrow: int, rows: List[
         if not name:
             continue
 
-        stock = parse_int(raw[spec.stock])
+        stock = parse_quantity(raw[spec.stock])
         price = parse_number(raw[spec.price])
         state_raw = raw[spec.state] if spec.state < len(raw) else None
 
@@ -154,7 +163,7 @@ def _read_seguridad_two_blocks(df: pd.DataFrame, rows: List[Dict]):
             continue
         price = parse_number(raw[1])
         state_raw = raw[3]
-        stock = parse_int(raw[4])
+        stock = parse_quantity(raw[4])
         rows.append(
             {
                 "sku": sku,
@@ -189,7 +198,7 @@ def _read_corrections(df: pd.DataFrame) -> Dict[str, Dict[str, object]]:
         if not sku or not looks_like_sku(sku):
             continue
         price = parse_number(raw[2])
-        stock = parse_int(raw[3])
+        stock = parse_quantity(raw[3])
         date_raw = raw[4]
         entry = result.setdefault(sku, {"price": None, "stock": None, "date": None})
         entry["price"] = price if entry["price"] is None else entry["price"]

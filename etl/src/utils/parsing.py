@@ -110,9 +110,11 @@ def _to_clean_float(token: str) -> Optional[float]:
         else:
             t = t.replace(",", ".")
     elif "." in t:
-        # Only dot: could be thousands separator or decimal. Use thousands
-        # when a single dot is followed by exactly 3 digits and text length>4.
-        if re.fullmatch(r"\d+\.\d{3}", t) and len(re.sub(r"\D", "", t)) > 4:
+        # Only dot: could be thousands separator or decimal.
+        # A single dot followed by exactly 3 digits is the Chilean thousands
+        # format ("5.260" -> 5260). Prices here are integer amounts, so any
+        # "N.NNN" with a dot and three trailing digits is a thousands group.
+        if re.fullmatch(r"\d{1,3}\.\d{3}", t):
             t = t.replace(".", "")
         # otherwise keep as-is (plain integer-like or decimal).
     try:

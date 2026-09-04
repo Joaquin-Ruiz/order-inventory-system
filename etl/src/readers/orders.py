@@ -11,8 +11,6 @@ from typing import Dict, List
 
 import pandas as pd
 
-from ..utils.normalize import normalize_sku
-
 # Sheets that must be ignored (resumen table / empty).
 _IGNORE_SHEETS = {"RESUMEN", "Hoja1"}
 
