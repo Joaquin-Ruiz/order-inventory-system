@@ -17,10 +17,12 @@ _IGNORE_SHEETS = {"RESUMEN", "Hoja1"}
 # Recognised header labels -> canonical key.
 _HEADER_ALIASES = {
     "PEDIDO": "order_number",
-    "N� PEDIDO": "order_number",
+    "N° PEDIDO": "order_number",
+    "Nº PEDIDO": "order_number",
+    "N PEDIDO": "order_number",
     "NRO PEDIDO": "order_number",
-    "PEDIDO": "order_number",
-    "N� PEDIDO (TEXTO)": "order_number",
+    "N° PEDIDO (TEXTO)": "order_number",
+    "Nº PEDIDO (TEXTO)": "order_number",
     "FECHA": "date",
     "F. EMISION": "date",
     "CLIENTE": "customer",

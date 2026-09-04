@@ -36,11 +36,21 @@ def upsert_products(
 
     stmt = text(
         """
-        INSERT INTO products (id, name, sku, stock, price, active, updated_at)
-        VALUES (:id, :name, :sku, :stock, :price, :active, NOW())
+        INSERT INTO products
+            (id, name, sku, stock, catalog_stock, price, active, updated_at)
+        VALUES
+            (:id, :name, :sku, :stock, :stock, :price, :active, NOW())
         ON CONFLICT (sku) DO UPDATE SET
             name = EXCLUDED.name,
-            stock = EXCLUDED.stock,
+            -- Apply only the change between catalog snapshots. This keeps
+            -- API sales made after the previous import instead of resetting
+            -- operational stock to the workbook value on every ETL run.
+            stock = GREATEST(
+                0,
+                products.stock + EXCLUDED.catalog_stock
+                    - COALESCE(products.catalog_stock, EXCLUDED.catalog_stock)
+            ),
+            catalog_stock = EXCLUDED.catalog_stock,
             price = EXCLUDED.price,
             active = EXCLUDED.active,
             updated_at = NOW()
@@ -104,7 +114,7 @@ def link_order_items(
 
     Each item carries ``order_number`` and ``sku``; they are resolved against
     the current DB state so the row only lands when both exist. Idempotency is
-    guaranteed by the ``(order_id, product_id)`` unique key (skip existing).
+    guaranteed by the ``(order_id, product_id)`` unique key (update existing).
     """
     if not items:
         return 0
@@ -113,7 +123,9 @@ def link_order_items(
         """
         INSERT INTO order_items (id, order_id, product_id, quantity, unit_price)
         VALUES (:id, :order_id, :product_id, :quantity, :unit_price)
-        ON CONFLICT (order_id, product_id) DO NOTHING
+        ON CONFLICT (order_id, product_id) DO UPDATE SET
+            quantity = EXCLUDED.quantity,
+            unit_price = EXCLUDED.unit_price
         """
     )
     lookup = _lookups(conn)
@@ -156,7 +168,14 @@ def upsert_movements(
         VALUES
             (:id, :product_id, :type, :quantity, :reason, :document,
              :movement_date, :source, :external_key)
-        ON CONFLICT (external_key) DO NOTHING
+        ON CONFLICT (external_key) DO UPDATE SET
+            product_id = EXCLUDED.product_id,
+            type = EXCLUDED.type,
+            quantity = EXCLUDED.quantity,
+            reason = EXCLUDED.reason,
+            document = EXCLUDED.document,
+            movement_date = EXCLUDED.movement_date,
+            source = EXCLUDED.source
         """
     )
     lookup = _lookups(conn)

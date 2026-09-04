@@ -13,9 +13,14 @@ export class OrdersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(createOrderDto: CreateOrderDto) {
-    const orderNumber = await this.nextOrderNumber();
-
     const order = await this.prisma.$transaction(async (tx) => {
+      // Serialize number allocation across concurrent API instances. The
+      // lock lives only for this transaction and avoids unique-key races.
+      await tx.$executeRawUnsafe(
+        "SELECT pg_advisory_xact_lock(hashtext('orders.order_number'))",
+      );
+      const orderNumber = await this.nextOrderNumber(tx);
+
       const order = await tx.order.create({
         data: {
           orderNumber,
@@ -66,6 +71,22 @@ export class OrdersService {
       }
 
       for (const item of pricedItems) {
+        const stockUpdate = await tx.product.updateMany({
+          where: {
+            id: item.productId,
+            stock: { gte: item.quantity },
+          },
+          data: {
+            stock: { decrement: item.quantity },
+          },
+        });
+
+        if (stockUpdate.count !== 1) {
+          throw new ConflictException(
+            `Stock changed while creating the order for product ${item.sku}`,
+          );
+        }
+
         await tx.orderItem.create({
           data: {
             orderId: order.id,
@@ -85,13 +106,6 @@ export class OrdersService {
             movementDate: order.date,
             source: 'API',
             externalKey: `${order.orderNumber}:${item.productId}`,
-          },
-        });
-
-        await tx.product.update({
-          where: { id: item.productId },
-          data: {
-            stock: { decrement: item.quantity },
           },
         });
       }
@@ -138,10 +152,7 @@ export class OrdersService {
     });
   }
 
-  private loadOrder(
-    client: Prisma.TransactionClient,
-    orderId: string,
-  ) {
+  private loadOrder(client: Prisma.TransactionClient, orderId: string) {
     return client.order.findUnique({
       where: { id: orderId },
       include: {
@@ -156,20 +167,17 @@ export class OrdersService {
     });
   }
 
-  private async nextOrderNumber(): Promise<string> {
-    const last = await this.prisma.order.findFirst({
-      orderBy: { orderNumber: 'desc' },
-      select: { orderNumber: true },
-    });
+  private async nextOrderNumber(
+    client: Prisma.TransactionClient,
+  ): Promise<string> {
+    const [row] = await client.$queryRawUnsafe<
+      Array<{ next_number: bigint | number | string }>
+    >(
+      `SELECT COALESCE(MAX((regexp_match(order_number, '([0-9]+)$'))[1]::bigint), 999) + 1 AS next_number
+       FROM orders
+       WHERE order_number ~ '[0-9]+$'`,
+    );
 
-    if (!last) {
-      return 'PED-1000';
-    }
-
-    const match = last.orderNumber.match(/(\d+)$/);
-
-    const next = match ? Number(match[1]) + 1 : 1001;
-
-    return `PED-${next}`;
+    return `PED-${String(row.next_number)}`;
   }
 }

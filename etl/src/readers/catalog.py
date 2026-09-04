@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 from ..utils.normalize import looks_like_sku, normalize_sku
-from ..utils.parsing import parse_number, parse_quantity
+from ..utils.parsing import parse_date, parse_number, parse_quantity
 
 # Sheets that must never be treated as product data.
 _IGNORE_SHEETS = {"LINEA NUEVA 2027", "plantilla"}
@@ -199,15 +199,19 @@ def _read_corrections(df: pd.DataFrame) -> Dict[str, Dict[str, object]]:
         sku = normalize_sku(raw[0])
         if not sku or not looks_like_sku(sku):
             continue
-        price = parse_number(raw[2])
-        stock = parse_quantity(raw[3])
-        date_raw = raw[4]
-        entry = result.setdefault(sku, {"price": None, "stock": None, "date": None})
-        entry["price"] = price if entry["price"] is None else entry["price"]
-        entry["stock"] = stock if entry["stock"] is None else entry["stock"]
-        # Keep the latest date marker (best-effort ordering).
-        if date_raw is not None:
-            entry["date"] = str(date_raw)
+        candidate = {
+            "price": parse_number(raw[2]),
+            "stock": parse_quantity(raw[3]),
+            "date": parse_date(raw[4]),
+        }
+        current = result.get(sku)
+        # A valid dated correction supersedes an undated/invalid one. For
+        # equal dates, the later row wins, matching spreadsheet convention.
+        if current is None or (
+            candidate["date"] is not None
+            and (current["date"] is None or candidate["date"] >= current["date"])
+        ):
+            result[sku] = candidate
     return result
 
 

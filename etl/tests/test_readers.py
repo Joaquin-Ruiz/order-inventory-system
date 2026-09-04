@@ -19,15 +19,19 @@ def test_catalog_reads_products(catalog_path):
     # Corrections applied: FER-0006 price was overridden in March.
     fer_0006 = next(r for r in rows if r["sku"] == "FER-0006")
     assert fer_0006["price"] > 10000
+    # The later 28-03 correction must replace the 08-03 stock value (46).
+    hog_0008 = next(r for r in rows if r["sku"] == "HOG-0008")
+    assert hog_0008["stock"] == 15
     assert all("family" in r for r in rows)
 
 
 def test_order_headers_read(orders_path):
     rows = read_order_headers(orders_path)
-    assert len(rows) > 200
+    assert len(rows) == 407
     numbers = {r["order_number"] for r in rows}
     assert len(numbers) == len(rows)  # already de-duplicated
     assert all(n.startswith("PED-") for n in numbers)
+    assert "PED-1001" in numbers  # January uses the N° PEDIDO header.
 
 
 def test_details_read_with_catalog(details_path, catalog_path):

@@ -12,13 +12,6 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
-# Prefer explicit ETL variables but fall back to the API's DATABASE_URL so the
-# two components stay on the same database out of the box.
-_DEFAULT_URL = (
-    "postgresql://postgres:postgres@localhost:5432/order_inventory"
-)
-
-
 @dataclass(frozen=True)
 class Settings:
     database_url: str
@@ -27,9 +20,9 @@ class Settings:
 def load_settings() -> Settings:
     load_dotenv()  # looks for `.env` in cwd and parents
 
-    url = (
-        os.getenv("ETL_DATABASE_URL")
-        or os.getenv("DATABASE_URL")
-        or _DEFAULT_URL
-    )
+    url = os.getenv("ETL_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if not url:
+        raise RuntimeError(
+            "ETL_DATABASE_URL or DATABASE_URL must be defined"
+        )
     return Settings(database_url=url)

@@ -22,6 +22,7 @@ import argparse
 import os
 import sys
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Dict, List, Optional
 
 # Make ``src`` importable regardless of the current working directory.
@@ -85,8 +86,13 @@ def _locate_file(folder: str, inputs: Optional[List[str]], kind: str) -> Optiona
                 if os.path.exists(cand):
                     return cand
             elif os.path.isfile(p):
-                # A single explicit file only supplies its own kind.
-                return p if os.path.basename(p) == _FILENAMES[kind] else None
+                # Explicit workbooks may be renamed by a scheduler. Detect
+                # their source from content instead of relying on basename.
+                if (
+                    os.path.basename(p) == _FILENAMES[kind]
+                    or _infer_source_kind(p) == kind
+                ):
+                    return p
         return None
     cand = os.path.join(folder, _FILENAMES[kind])
     return cand if os.path.exists(cand) else None
@@ -102,6 +108,19 @@ def _read_raw(kind: str, path: str, name_to_sku: Optional[Dict[str, str]]) -> Li
     if kind == "movements":
         return read_movements(path)
     raise ValueError(f"unknown source {kind!r}")
+
+
+@lru_cache(maxsize=32)
+def _infer_source_kind(path: str) -> Optional[str]:
+    """Identify a renamed workbook by the reader that recognizes its content."""
+    matches: List[str] = []
+    for kind in _ORDER:
+        try:
+            if _read_raw(kind, path, None):
+                matches.append(kind)
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return matches[0] if len(matches) == 1 else None
 
 
 def _clean(kind: str, raw: List[Dict]) -> List[Dict]:
@@ -201,9 +220,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    settings = load_settings()
-    if args.db_url:
-        settings = Settings(database_url=args.db_url)
+    settings: Optional[Settings] = None
+    if not args.dry_run:
+        settings = (
+            Settings(database_url=args.db_url)
+            if args.db_url
+            else load_settings()
+        )
 
     folder = _DEFAULT_DATA
     if args.input and os.path.isdir(os.path.abspath(args.input[0])):
@@ -213,6 +236,15 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.sources:
         kinds = list(dict.fromkeys(args.sources))
+    elif args.input and all(os.path.isfile(os.path.abspath(p)) for p in args.input):
+        detected = [_infer_source_kind(os.path.abspath(p)) for p in args.input]
+        if any(kind is None for kind in detected):
+            print(
+                "Could not identify one or more explicit input workbooks",
+                file=sys.stderr,
+            )
+            return 2
+        kinds = list(dict.fromkeys(kind for kind in detected if kind is not None))
     else:
         kinds = list(_ORDER)
     invalid = [k for k in kinds if k not in _SUPPORTED]
@@ -226,10 +258,12 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     conn = None
     if not args.dry_run:
+        assert settings is not None
         conn = repo.create_connection(settings)
         print("database      : connected")
 
     results: List[JobResult] = []
+    missing_sources: List[str] = []
     name_to_sku: Optional[Dict[str, str]] = None
     try:
         # Load the catalog whenever it is needed:
@@ -250,6 +284,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             else:
                 if "catalog" in kinds:
                     print("  [skip] catalog workbook not found")
+                    missing_sources.append("catalog")
 
         for kind in ("orders", "details", "movements"):
             if kind not in kinds:
@@ -257,6 +292,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             path = _locate_file(folder, args.input, kind)
             if not path:
                 print(f"  [skip] {kind} workbook not found")
+                missing_sources.append(kind)
                 continue
             sku_index = name_to_sku if kind == "details" else None
             job = _run_one(kind, path, sku_index, conn, args.dry_run, args.strict)
@@ -274,6 +310,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         for reason, count in r.reasons.items():
             print(f"     rejected-{reason}: {count}")
     print("---------------------------")
+    if missing_sources:
+        print(
+            f"Missing requested source(s): {', '.join(missing_sources)}",
+            file=sys.stderr,
+        )
+        return 1
+    if any(result.written < 0 for result in results):
+        return 1
+    if not results:
+        print("No source was processed", file=sys.stderr)
+        return 1
     return 0
 
 

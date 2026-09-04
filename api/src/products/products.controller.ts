@@ -6,14 +6,18 @@ import {
   Param,
   Patch,
   Post,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { ProductsService } from './products.service.js';
 import { CreateProductDto } from './dto/create-product.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
 
 @Controller('products')
+@UseGuards(JwtAuthGuard)
 @ApiTags('products')
+@ApiBearerAuth()
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
@@ -33,10 +37,7 @@ export class ProductsController {
   }
 
   @Patch(':id')
-  update(
-    @Param('id') id: string,
-    @Body() updateProductDto: UpdateProductDto,
-  ) {
+  update(@Param('id') id: string, @Body() updateProductDto: UpdateProductDto) {
     return this.productsService.update(id, updateProductDto);
   }
 

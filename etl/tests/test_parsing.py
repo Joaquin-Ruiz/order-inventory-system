@@ -42,6 +42,11 @@ def test_parse_int_rounds():
 # --- dates ---------------------------------------------------------------
 def test_parse_iso_date():
     assert parse_date("2026-04-20 00:00:00") == date(2026, 4, 20)
+    assert parse_date("2026-06-09") == date(2026, 6, 9)
+
+
+def test_parse_invalid_iso_date_is_not_reinterpreted():
+    assert parse_date("2026-13-05") is None
 
 
 def test_parse_excel_serial():

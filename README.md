@@ -53,11 +53,11 @@ POSTGRES_PASSWORD=postgres
 POSTGRES_DB=order_inventory
 POSTGRES_PORT=5432
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/order_inventory
-JWT_SECRET=change_me_in_production
+JWT_SECRET=replace_with_a_long_random_secret
 JWT_EXPIRES_IN=1h
 ```
 
-La API tambien puede usar `api/.env` con el mismo `DATABASE_URL`, `JWT_SECRET` y `JWT_EXPIRES_IN`.
+La API tambien puede usar `api/.env` con el mismo `DATABASE_URL`, `JWT_SECRET` y `JWT_EXPIRES_IN`. `JWT_SECRET` es obligatorio: la API falla al iniciar si no esta definido, en vez de usar una credencial embebida en el codigo.
 
 ## Levantar PostgreSQL
 
@@ -73,7 +73,7 @@ Esto levanta PostgreSQL en `localhost:5432` usando las variables del `.env`.
 
 ```bash
 cd api
-npm install
+npm ci
 ```
 
 ## Migraciones Prisma
@@ -139,6 +139,7 @@ Endpoints protegidos con JWT:
 
 - `GET /api/auth/profile`
 - `GET /api/users`
+- `GET/POST/PATCH/DELETE /api/products`
 - `GET /api/orders`
 - `POST /api/orders`
 - `PATCH /api/orders/:id/status`
@@ -228,10 +229,13 @@ Usar una carpeta o archivo especifico:
 
 ```bash
 python etl.py --input ../data/examples
-python etl.py --input ../data/examples/01_catalogo_productos_2026.xlsx catalog
+python etl.py catalog --input ../data/examples/01_catalogo_productos_2026.xlsx
+python etl.py --input ../data/incoming-export.xlsx
 ```
 
-El ETL usa `ETL_DATABASE_URL` si existe; si no, usa `DATABASE_URL`.
+Los archivos explicitos se identifican por su contenido, por lo que un job puede renombrarlos. El proceso retorna codigo distinto de cero si no reconoce una entrada, falta una fuente solicitada o falla una escritura en PostgreSQL; esto permite que cron/schedulers detecten el fallo.
+
+El ETL usa `ETL_DATABASE_URL` si existe; si no, usa `DATABASE_URL`. Para cargas reales una de las dos es obligatoria; `--dry-run` no necesita credenciales.
 
 ## ETL: Resultado Esperado
 
@@ -239,21 +243,21 @@ Con los datasets incluidos, el dry-run reporta aproximadamente:
 
 ```text
 catalog    raw=101    cleaned=101    rejected=0
-orders     raw=222    cleaned=222    rejected=2
+orders     raw=407    cleaned=407    rejected=6
 details    raw=1033   cleaned=940    rejected=0
 movements  raw=201    cleaned=201    rejected=0
 ```
 
-La carga real validada en PostgreSQL dejo:
+En una base limpia, la carga validada en PostgreSQL deja:
 
 ```text
 products: 101
-orders: 220
-order_items: 483
+orders: 401
+order_items: 940
 inventory_movements: 201
 ```
 
-`order_items` termina con menos filas que el detalle limpio porque solo se insertan items cuyo pedido existe en cabecera y cuyo producto existe en catalogo.
+Las seis cabeceras rechazadas tienen fecha nula o imposible y no poseen items en el detalle, por lo que los 940 items limpios son vinculables.
 
 ## Reglas De Calidad Del ETL
 
@@ -293,8 +297,10 @@ Movimientos de bodega:
 Idempotencia:
 
 - Productos y pedidos usan `INSERT ... ON CONFLICT DO UPDATE`.
-- Items usan `ON CONFLICT (order_id, product_id) DO NOTHING`.
-- Movimientos usan `ON CONFLICT (external_key) DO NOTHING`.
+- Items actualizan cantidad y precio ante conflicto por `(order_id, product_id)`.
+- Movimientos actualizan todos sus datos ante conflicto por `external_key`.
+- El ultimo stock importado se guarda como `catalog_stock`; una nueva version aplica solo la diferencia entre snapshots. Asi, volver a importar el catalogo no borra pedidos realizados por la API.
+- Los movimientos historicos se conservan como libro de auditoria y no vuelven a aplicarse al stock: el snapshot de catalogo ya incorpora actividad de bodega y hacerlo duplicaria movimientos.
 - Correr el ETL dos veces no duplica datos.
 
 ## Reporte De Negocio
@@ -330,6 +336,8 @@ API:
 cd api
 npm run build
 npm run lint
+npm test
+npm run test:e2e
 ```
 
 ETL:
@@ -342,7 +350,7 @@ python -m pytest
 Resultado validado:
 
 ```text
-30 passed
+36 passed
 ```
 
 ## Decisiones De Diseño
@@ -351,6 +359,7 @@ Resultado validado:
 - Prisma se usa para el modelo y migraciones de la API; el ETL usa SQLAlchemy Core con SQL explicito para controlar upserts e idempotencia.
 - El SKU se normaliza igual en API y ETL para que ambas fuentes apunten al mismo producto.
 - La creacion de pedidos en API usa transaccion para validar stock, crear items, registrar movimiento y descontar inventario atomica y consistentemente.
+- La asignacion de `order_number` usa un advisory lock transaccional de PostgreSQL y calcula el maximo numerico, evitando colisiones entre instancias concurrentes.
 - El ETL separa readers, cleaners, validators y repositorios para aislar lectura de archivos sucios, reglas de negocio y persistencia.
 - El reporte usa una funcion SQL porque el requisito pide procesamiento en PostgreSQL y porque el KPI depende de joins/agregaciones naturales para la base de datos.
 - Swagger se agrega como herramienta de evaluacion/manual testing, con bearer JWT configurado.

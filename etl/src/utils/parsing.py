@@ -71,6 +71,21 @@ def parse_date(value: object) -> Optional[date]:
     if not text:
         return None
 
+    # ISO dates are year-first regardless of locale.  Parse them strictly
+    # before the day-first fallback so 2026-06-09 cannot become 2026-09-06,
+    # and malformed values such as 2026-13-05 are rejected rather than
+    # reinterpreted as a different valid date.
+    iso_match = re.fullmatch(
+        r"(\d{4})-(\d{2})-(\d{2})"
+        r"(?:[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?",
+        text,
+    )
+    if iso_match:
+        try:
+            return date(*(int(part) for part in iso_match.groups()))
+        except ValueError:
+            return None
+
     # Numeric Excel serial -> real date.
     serial = _is_excel_serial(text)
     if serial is not None:
