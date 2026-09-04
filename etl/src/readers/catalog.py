@@ -94,7 +94,7 @@ _SHEETS = {
 }
 
 
-def _scan_family_rows(df: pd.DataFrame, spec: _SheetSpec, hrow: int, rows: List[Dict]):
+def _scan_family_rows(df: pd.DataFrame, spec: _SheetSpec, hrow: int, rows: List[Dict], family: str):
     """Extract product rows from a single-column-order family sheet."""
     for i in range(hrow + 1, len(df)):
         raw = df.iloc[i]
@@ -126,6 +126,7 @@ def _scan_family_rows(df: pd.DataFrame, spec: _SheetSpec, hrow: int, rows: List[
                 "stock": stock if stock is not None else 0,
                 "price": price if price is not None else 0,
                 "active": _is_active(state_raw),
+                "family": family,
             }
         )
 
@@ -138,7 +139,7 @@ def _read_seguridad_two_blocks(df: pd.DataFrame, rows: List[Dict]):
     hrow = spec.find_header(df)
     if hrow < 0:
         return
-    _scan_family_rows(df, spec, hrow, rows)
+    _scan_family_rows(df, spec, hrow, rows, "SEGURIDAD")
 
     # Second block starts at the '>>> CARGA COMPLEMENTARIA' banner.
     start = None
@@ -171,6 +172,7 @@ def _read_seguridad_two_blocks(df: pd.DataFrame, rows: List[Dict]):
                 "stock": stock if stock is not None else 0,
                 "price": price if price is not None else 0,
                 "active": _is_active(state_raw),
+                "family": "SEGURIDAD",
             }
         )
 
@@ -225,7 +227,7 @@ def read_catalog(path: str) -> List[Dict]:
             spec = _SHEETS[sheet]
             hrow = spec.find_header(df)
             if hrow >= 0:
-                _scan_family_rows(df, spec, hrow, rows)
+                _scan_family_rows(df, spec, hrow, rows, sheet.strip())
 
     # 2. Apply the corrections sheet (price/stock overrides).
     if _CORRECTIONS_SHEET in xl.sheet_names:

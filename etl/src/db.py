@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable
 
-from typing import Any, Dict, Iterable
-
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection
 
