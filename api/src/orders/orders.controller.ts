@@ -7,6 +7,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { OrdersService } from './orders.service.js';
 import { CreateOrderDto } from './dto/create-order.dto.js';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto.js';
@@ -14,6 +15,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 
 @Controller('orders')
 @UseGuards(JwtAuthGuard)
+@ApiTags('orders')
+@ApiBearerAuth()
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
